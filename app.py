@@ -72,7 +72,10 @@ st.title("🧠 Sage — Your Virtual Therapist")
 
 if st.session_state.get("chain_error"):
     st.error(f"Configuration error: {st.session_state.chain_error}")
-    st.info("Set your `OPENAI_API_KEY` in a `.env` file or in Streamlit Cloud secrets, then reload the page.")
+    st.info(
+        "Set your `ANTHROPIC_API_KEY` in a `.env` file or in Streamlit Cloud secrets "
+        "(Settings → Secrets), then reload the page."
+    )
     st.stop()
 
 # Render existing history
@@ -92,22 +95,20 @@ if user_input:
     if is_crisis_message(user_input):
         st.warning(CRISIS_MESSAGE)
 
-    # Get response from Sage
+    # Stream Sage's response
+    response_text = ""
     with st.chat_message("assistant"):
-        with st.spinner("Sage is thinking..."):
-            try:
-                response = st.session_state.chain.predict(input=user_input)
-            except Exception as e:
-                response = None
-                st.error(
-                    f"Something went wrong while reaching the AI: `{e}`. "
-                    "Please try again in a moment."
-                )
-
-        if response:
-            st.markdown(response)
+        try:
+            response_text = st.write_stream(
+                st.session_state.chain.stream_response(user_input)
+            )
+        except Exception as e:
+            st.error(
+                f"Something went wrong while reaching the AI: `{e}`. "
+                "Please try again in a moment."
+            )
 
     # Persist to history
     st.session_state.chat_history.append(("You", user_input))
-    if response:
-        st.session_state.chat_history.append(("Sage", response))
+    if response_text:
+        st.session_state.chat_history.append(("Sage", response_text))

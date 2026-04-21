@@ -1,8 +1,6 @@
 import os
-from langchain_openai import ChatOpenAI
-from langchain.memory import ConversationBufferMemory
-from langchain.chains import ConversationChain
-from langchain.prompts import PromptTemplate
+from typing import Generator
+import anthropic
 
 
 def load_therapist_prompt() -> str:
@@ -11,35 +9,44 @@ def load_therapist_prompt() -> str:
         return f.read()
 
 
-def create_chain() -> ConversationChain:
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise EnvironmentError(
-            "OPENAI_API_KEY is not set. Add it to your .env file or Streamlit secrets."
-        )
+class TherapistChain:
+    """Manages conversation history and streams responses via the Anthropic API."""
 
-    prompt = PromptTemplate(
-        input_variables=["chat_history", "input"],
-        template=load_therapist_prompt(),
-    )
+    MODEL = "claude-haiku-4-5"
 
-    llm = ChatOpenAI(
-        temperature=0.7,
-        model_name="gpt-4o-mini",
-        openai_api_key=api_key,
-    )
+    def __init__(self):
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise EnvironmentError(
+                "ANTHROPIC_API_KEY is not set. Add it to your .env file or Streamlit secrets."
+            )
+        self.client = anthropic.Anthropic(api_key=api_key)
+        self.system_prompt = load_therapist_prompt()
+        self.messages: list[dict] = []
 
-    # return_messages=False keeps memory as a plain string, compatible with PromptTemplate
-    memory = ConversationBufferMemory(
-        memory_key="chat_history",
-        return_messages=False,
-    )
+    def stream_response(self, user_input: str) -> Generator[str, None, None]:
+        """Stream Sage's response token by token, updating message history."""
+        self.messages.append({"role": "user", "content": user_input})
 
-    chain = ConversationChain(
-        llm=llm,
-        prompt=prompt,
-        memory=memory,
-        verbose=False,
-    )
+        full_response = ""
+        with self.client.messages.stream(
+            model=self.MODEL,
+            max_tokens=1024,
+            system=[
+                {
+                    "type": "text",
+                    "text": self.system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=self.messages,
+        ) as stream:
+            for text in stream.text_stream:
+                full_response += text
+                yield text
 
-    return chain
+        self.messages.append({"role": "assistant", "content": full_response})
+
+
+def create_chain() -> TherapistChain:
+    return TherapistChain()
